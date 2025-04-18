@@ -1,19 +1,16 @@
 import os
+import streamlit as st
 import whisper
 from gtts import gTTS
 from textblob import TextBlob
-import streamlit as st
-
-model = whisper.load_model("base")
 
 UPLOAD_FOLDER = "uploads"
-TRANSCRIPT_FOLDER = "transcripts"
-SCORE_FOLDER = "scores"
-FEEDBACK_TEXT_FOLDER = "feedback_text"
-AUDIO_FEEDBACK_FOLDER = "static/feedback_audio"
+FEEDBACK_AUDIO_FOLDER = "feedback_audio"
 
-for folder in [UPLOAD_FOLDER, TRANSCRIPT_FOLDER, SCORE_FOLDER, FEEDBACK_TEXT_FOLDER, AUDIO_FEEDBACK_FOLDER]:
-    os.makedirs(folder, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(FEEDBACK_AUDIO_FOLDER, exist_ok=True)
+
+model = whisper.load_model("base")
 
 intent_keywords = {
     "refund": ["refund", "money back", "return"],
@@ -71,51 +68,31 @@ def evaluate_call(transcription):
     except:
         feedback.append("Sentiment analysis could not be performed on this transcription.")
 
-    summary = "\n\n".join(feedback)
-    return min(score, 100), summary
+    return min(score, 100), "\n\n".join(feedback)
 
-def save_text_file(text, folder, base_name):
-    filename = f"{base_name}.txt"
-    with open(os.path.join(folder, filename), "w", encoding="utf-8") as f:
-        f.write(text)
-    return filename
+st.title("📞 Call Evaluation Tool")
 
-def generate_feedback_audio(text, base_name):
-    filename = f"{base_name}.mp3"
-    path = os.path.join(AUDIO_FEEDBACK_FOLDER, filename)
-    tts = gTTS(text=text, lang='en')
-    tts.save(path)
-    return filename
-
-
-st.title("Call Evaluation System")
-st.markdown("Upload a call recording and click 'Evaluate Call' to analyze it.")
-
-uploaded_file = st.file_uploader("Choose an audio file", type=["mp3", "wav", "m4a"])
+uploaded_file = st.file_uploader("Upload an audio file", type=["mp3", "wav", "m4a"])
 
 if uploaded_file:
-    base_name = os.path.splitext(uploaded_file.name)[0]
-    file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    temp_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+
+    with open(temp_path, "wb") as f:
+        f.write(uploaded_file.read())
+    st.success("File uploaded successfully.")
 
     if st.button("Evaluate Call"):
-        with st.spinner("Transcribing and evaluating..."):
-            result = model.transcribe(file_path)
+        with st.spinner("Transcribing and analyzing..."):
+            result = model.transcribe(temp_path)
             transcription = result["text"]
-
             score, feedback_text = evaluate_call(transcription)
 
-            save_text_file(transcription, TRANSCRIPT_FOLDER, base_name)
-            save_text_file(str(score), SCORE_FOLDER, base_name)
-            save_text_file(feedback_text, FEEDBACK_TEXT_FOLDER, base_name)
-
-            feedback_audio_file = generate_feedback_audio(feedback_text, base_name)
-            feedback_audio_path = os.path.join(AUDIO_FEEDBACK_FOLDER, feedback_audio_file)
-
+            audio_filename = f"{uploaded_file.name}_feedback.mp3"
+            audio_path = os.path.join(FEEDBACK_AUDIO_FOLDER, audio_filename)
+            tts = gTTS(text=feedback_text, lang='en')
+            tts.save(audio_path)
 
         st.subheader(f"Score: {score}/100")
         st.write(feedback_text)
+        st.audio(audio_path)
 
-        st.subheader("Audio Feedback:")
-        st.audio(feedback_audio_path)
